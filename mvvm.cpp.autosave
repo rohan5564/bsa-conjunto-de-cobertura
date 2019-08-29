@@ -1,0 +1,107 @@
+#include "mvvm.h"
+#include "ui_mainwindow.h"
+#include <qcalendarwidget.h>
+#include <QSettings>
+#include <chrono>
+#include <thread>
+#include <QThread>
+
+using namespace std;
+
+Mvvm::Mvvm(QWidget *parent) :
+    QMainWindow(parent),
+    ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+    auto point = cargar("ventana", "posicion", pos()).value<QPoint>();
+    move(point);
+    ui->lbl_realizando_busqueda->hide();
+    ui->widget_GUI->setVisible(false);
+    ui->sujetos_de_busqueda->setValue(static_cast<int>(thread::hardware_concurrency()));
+
+    busquedaEnSegundoPlano = new BusquedaEnSegundoPlano(this);
+    connect(busquedaEnSegundoPlano, SIGNAL(mejorCaminoEncontrado(bool)),
+                this, SLOT(alEncontrarElCamino(bool)));
+}
+
+Mvvm::~Mvvm()
+{
+    delete ui;
+}
+
+void Mvvm::closeEvent(QCloseEvent *e){
+    guardar("ventana", "posicion", pos());
+    QMainWindow::closeEvent(e);
+}
+
+#include <iostream>
+void Mvvm::on_btn_iniciar_clicked()
+{
+    mostrarInformacion(false);
+    SUJETOSDEBUSQUEDA = static_cast<unsigned int>(ui->sujetos_de_busqueda->value());
+    CRONOMETRO.INICIO = chrono::steady_clock::now();
+    busquedaEnSegundoPlano->start();
+}
+
+void Mvvm::alEncontrarElCamino(bool valor){
+    CRONOMETRO.FIN = chrono::steady_clock::now();
+    cout << endl << "\t\t\t   Mejor camino encontrado:" << endl;
+    ui->lbl_id->clear();
+    ui->lbl_comuna->clear();
+    ui->lbl_costo->clear();
+
+    for (const auto& i : MEJORCAMINO->antenas){
+        cout << i.lock()->getNombre() << ", ID " << i.lock()->getId() << endl;
+        /*qt*/
+        ui->lbl_id->setText(ui->lbl_id->text() + QString::number(i.lock()->getId()) + "\n\n");
+        ui->lbl_comuna->setText(ui->lbl_comuna->text() + QString::fromStdString(i.lock()->getNombre()) + "\n\n");
+        ui->lbl_costo->setText(ui->lbl_costo->text() + QString::number(const_cast <float&>(i.lock()->getPrecio())) + "\n\n");
+    }
+    cout << "\t\t\t   costo total de produccion = " << MEJORCAMINO->costoFinal() << " Unidades" << endl;
+    ui->lbl_costo_total->clear();
+    ui->lbl_costo_total->setText(QString::number(MEJORCAMINO->costoFinal()) + " unidades");
+    delete MEJORCAMINO;
+    MEJORCAMINO = nullptr;
+    cout <<"\t\t\t   numero de busquedas = " << TOTALDEINTENTOS << " (realizado por " << SUJETOSDEBUSQUEDA <<
+        " sujetos de busqueda)" << endl;
+    ui->lbl_tiempo_de_busqueda->clear();
+    ui->lbl_tiempo_de_busqueda->setText(QString::number(chrono::duration_cast<chrono::minutes>(CRONOMETRO.FIN - CRONOMETRO.INICIO).count())
+                                        +":"+QString::number(chrono::duration_cast<chrono::seconds>(CRONOMETRO.FIN - CRONOMETRO.INICIO).count())
+                                        + ((chrono::duration_cast<chrono::minutes>(CRONOMETRO.FIN - CRONOMETRO.INICIO).count() > 0) ?
+                                            " minutos" : " segundos"));
+    ui->lbl_numero_de_busquedas->clear();
+    ui->lbl_numero_de_busquedas->setText(QString::number(SUJETOSDEBUSQUEDA));
+    ui->lbl_numero_de_intentos->clear();
+    ui->lbl_numero_de_intentos->setText(QString::number(TOTALDEINTENTOS));
+    mostrarInformacion(valor);
+}
+
+void Mvvm::mostrarInformacion(bool t_condicion)
+{
+    t_condicion ? ui->lbl_realizando_busqueda->hide() : ui->lbl_realizando_busqueda->show();
+    ui->btn_iniciar->setVisible(t_condicion);
+    ui->widget_GUI->setVisible(t_condicion);
+    ui->tabWidget->setTabEnabled(1,t_condicion);
+    ui->tabWidget->setTabEnabled(2, t_condicion);
+}
+
+/*
+fuera de la clase
+*/
+void guardar(const QString &t_grupo, const QString &t_llave, const QVariant &t_valor)
+{
+    QSettings config;
+    config.beginGroup(t_grupo);
+    config.setValue(t_llave, t_valor);
+    config.endGroup();
+}
+
+QVariant cargar(const QString &t_grupo, const QString &t_llave, const QVariant &t_valor)
+{
+    QVariant valor;
+    QSettings config;
+    config.beginGroup(t_grupo);
+    valor = config.value(t_llave, t_valor);
+    config.endGroup();
+    return valor;
+}
